@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kimi PPT · 生成状态</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <div class="brand serif">Kimi PPT<span class="dot">.</span></div>
+    <span class="badge" id="badge">排队中</span>
+  </header>
+
+  <div class="big-status serif" id="headline"><span class="pulse"></span>排队中</div>
+  <p class="meta" id="meta">已提交，正在等待生成…</p>
+
+  <dl class="kv" id="detail" style="display:none">
+    <dt>PPT 描述</dt><dd id="d-desc"></dd>
+    <dt>页数</dt><dd id="d-pages"></dd>
+    <dt>风格</dt><dd id="d-style"></dd>
+    <dt>任务 ID</dt><dd class="mono" id="d-id"></dd>
+  </dl>
+
+  <div id="result" style="display:none">
+    <a class="btn" id="download" href="#" target="_blank" rel="noopener">下载 PPT</a>
+    <p class="hint" id="mock-note" style="margin-top:14px"></p>
+  </div>
+
+  <div id="failed" style="display:none">
+    <div class="notice">
+      <strong style="color:var(--err)">生成失败</strong>
+      <p class="hint" id="err-msg" style="margin-top:8px"></p>
+      <p class="hint">请联系发放链接的管理员处理。</p>
+    </div>
+  </div>
+
+  <footer>每 5 秒自动刷新状态 · 可保存本页链接稍后回来查看</footer>
+</div>
+
+<script>
+const jobId = location.pathname.split('/').pop();
+const qs = s => document.querySelector(s);
+const STYLE = { classic: '经典模版', smart: '智能布局' };
+let timer;
+
+async function poll(){
+  let j;
+  try { j = await fetch(`/api/jobs/${jobId}`).then(r => r.json()); }
+  catch { return; }
+  if (j.error && j.status === 'failed') return showFailed(j);
+  qs('#detail').style.display = 'grid';
+  qs('#d-desc').textContent = j.description;
+  qs('#d-pages').textContent = j.pages === 'auto' ? '自动页数' : j.pages + ' 页';
+  qs('#d-style').textContent = STYLE[j.style] || j.style;
+  qs('#d-id').textContent = j.id;
+
+  if (j.status === 'queued') {
+    setHead('排队中', j.position > 0 ? `前面还有 ${j.position} 个任务…` : '即将开始生成…', '排队中');
+  } else if (j.status === 'running') {
+    const secs = Math.max(0, (Date.now() - new Date(j.updated_at)) / 1000 | 0);
+    setHead('生成中', `已进行 ${String(secs/60|0).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}，PPT 生成通常需要几分钟…`, '生成中');
+  } else if (j.status === 'done') {
+    clearInterval(timer);
+    qs('#headline').innerHTML = '生成完成';
+    qs('#badge').textContent = '完成';
+    qs('#meta').textContent = '你的 PPT 已就绪。';
+    qs('#result').style.display = 'block';
+    if (j.result_url) {
+      qs('#download').href = j.result_url;
+    } else {
+      qs('#download').style.display = 'none';
+      qs('#mock-note').textContent = j.error || '生成完成（演示模式：未配置真实生成 key，无下载文件）。';
+    }
+  } else if (j.status === 'failed') {
+    showFailed(j);
+  }
+}
+function setHead(t, meta, badge){
+  qs('#headline').innerHTML = `<span class="pulse"></span>${t}`;
+  qs('#meta').textContent = meta;
+  qs('#badge').textContent = badge;
+}
+function showFailed(j){
+  clearInterval(timer);
+  qs('#headline').textContent = '生成失败';
+  qs('#badge').textContent = '失败';
+  qs('#meta').textContent = '';
+  qs('#failed').style.display = 'block';
+  qs('#err-msg').textContent = j.error || '未知错误';
+}
+poll();
+timer = setInterval(poll, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kimi PPT · 管理后台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <div class="brand serif">Kimi PPT<span class="dot">.</span> 管理</div>
+    <span class="badge">admin</span>
+  </header>
+
+  <div id="login">
+    <h1 class="serif">输入管理令牌</h1>
+    <p class="sub">令牌由部署时的 ADMIN_TOKEN 环境变量设定。</p>
+    <label class="field-label" for="token">Admin Token</label>
+    <div class="row"><input type="text" id="token" placeholder="粘贴令牌" style="flex:1"><button class="btn" id="enter">进入</button></div>
+    <p class="hint" id="login-err" style="color:var(--err)"></p>
+  </div>
+
+  <div id="panel" style="display:none">
+    <h1 class="serif" style="margin-top:40px">链接管理</h1>
+    <p class="sub" id="stats"></p>
+
+    <div class="notice">
+      <div class="row">
+        <div>
+          <label class="field-label" style="margin:0" for="count">数量</label>
+          <input type="text" id="count" value="10" style="width:90px">
+        </div>
+        <div style="flex:1;min-width:180px">
+          <label class="field-label" style="margin:0" for="note">备注（可选）</label>
+          <input type="text" id="note" placeholder="例如：7月活动批次">
+        </div>
+        <button class="btn" id="gen" style="margin-top:18px">生成链接</button>
+      </div>
+    </div>
+
+    <div id="newlinks" style="display:none">
+      <label class="field-label">本次生成（点击复制全部）</label>
+      <div class="notice mono" id="newlinks-box" style="cursor:pointer;word-break:break-all"></div>
+    </div>
+
+    <div class="seg" style="margin-top:36px" id="filter">
+      <button data-v="all" class="on">全部</button>
+      <button data-v="unused">未使用</button>
+      <button data-v="used">已使用</button>
+    </div>
+    <table class="admin">
+      <thead><tr><th>Hash</th><th>状态</th><th>备注</th><th>创建时间</th><th>使用时间</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <footer>令 牌仅保存在本浏览器 localStorage</footer>
+</div>
+
+<script>
+const qs = s => document.querySelector(s);
+let token = localStorage.getItem('admin_token') || '';
+let filter = 'all';
+
+qs('#enter').onclick = () => { token = qs('#token').value.trim(); tryEnter(); };
+qs('#token').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { token = qs('#token').value.trim(); tryEnter(); }
+});
+async function tryEnter(){
+  const r = await fetch('/api/admin/hashes', { headers: { 'X-Admin-Token': token } });
+  if (r.ok) {
+    localStorage.setItem('admin_token', token);
+    qs('#login').style.display = 'none';
+    qs('#panel').style.display = 'block';
+    refresh();
+  } else {
+    qs('#login-err').textContent = r.status === 503 ? '服务端未配置 ADMIN_TOKEN' : '令牌错误';
+  }
+}
+if (token) tryEnter();
+
+qs('#gen').onclick = async () => {
+  const fd = new FormData();
+  fd.append('count', qs('#count').value || '10');
+  fd.append('note', qs('#note').value);
+  const r = await fetch('/api/admin/hashes', {
+    method: 'POST', headers: { 'X-Admin-Token': token }, body: fd });
+  if (!r.ok) { alert('生成失败'); return; }
+  const { hashes } = await r.json();
+  const base = location.origin + '/submit?h=';
+  const links = hashes.map(h => base + h);
+  qs('#newlinks').style.display = 'block';
+  qs('#newlinks-box').textContent = links.join('\n');
+  qs('#newlinks-box').onclick = () => {
+    navigator.clipboard.writeText(links.join('\n'));
+    qs('#newlinks-box').style.outline = '2px solid var(--accent)';
+    setTimeout(() => qs('#newlinks-box').style.outline = '', 400);
+  };
+  refresh();
+};
+qs('#filter').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  qs('#filter .on')?.classList.remove('on'); b.classList.add('on');
+  filter = b.dataset.v; refresh();
+});
+async function refresh(){
+  const r = await fetch(`/api/admin/hashes?filter=${filter}`, { headers: { 'X-Admin-Token': token } });
+  if (!r.ok) return;
+  const { items, stats } = await r.json();
+  qs('#stats').textContent = `共 ${stats.total} 个链接 · 已用 ${stats.used} · 未用 ${stats.unused}`;
+  qs('#rows').innerHTML = items.map(x => `
+    <tr>
+      <td class="mono">${x.hash.slice(0,8)}…</td>
+      <td>${x.used ? '<span class="badge">已使用</span>' : '<span class="badge" style="background:rgba(81,99,60,.12);color:var(--ok)">未使用</span>'}</td>
+      <td>${x.note || ''}</td>
+      <td class="mono">${(x.created_at||'').slice(0,16).replace('T',' ')}</td>
+      <td class="mono">${x.used_at ? x.used_at.slice(0,16).replace('T',' ') : '—'}</td>
+    </tr>`).join('');
+}
+</script>
+</body>
+</html>

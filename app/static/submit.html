@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kimi PPT · 提交生成</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap" id="app">
+  <header class="site">
+    <div class="brand serif">Kimi PPT<span class="dot">.</span></div>
+    <span class="badge">一次性邀请链接</span>
+  </header>
+
+  <div id="invalid" style="display:none">
+    <h1 class="serif">链接无效<br>或已被使用</h1>
+    <p class="sub" id="invalid-reason"></p>
+    <p class="hint">每个生成链接仅可使用一次。如需新的链接，请联系发放人。</p>
+  </div>
+
+  <div id="form" style="display:none">
+    <h1 class="serif">描述你想要的<br>那份 PPT</h1>
+    <p class="sub">提交后即开始排队生成，链接随之作废。</p>
+
+    <label class="field-label" for="desc">PPT 描述 <span class="req">*</span></label>
+    <textarea id="desc" placeholder="例如：帮我生成一份关于跨境电商春季选品复盘的 PPT，重点突出销量结构、素材策略、问题分析和下阶段计划。"></textarea>
+
+    <label class="field-label">参考资料 <span class="opt">（可选，最多 50 个，单个 ≤100MB）</span></label>
+    <div class="drop" id="drop">点击选择文件，或直接拖入</div>
+    <input type="file" id="file" multiple hidden>
+    <ul class="filelist" id="filelist"></ul>
+
+    <label class="field-label">页数</label>
+    <div class="seg" id="pages">
+      <button data-v="auto" class="on">自动页数</button>
+      <button data-v="1-5">1~5页</button>
+      <button data-v="6-10">6~10页</button>
+      <button data-v="11-15">11~15页</button>
+      <button data-v="16-20">16~20页</button>
+      <button data-v="21-25">21~25页</button>
+      <button data-v="26-30">26~30页</button>
+    </div>
+
+    <label class="field-label">风格版本 <span class="req">*</span></label>
+    <div class="styles" id="styles">
+      <button type="button" class="style-card" data-v="classic">
+        <h3 class="serif">经典模版</h3><p>套模板极速生成</p>
+      </button>
+      <button type="button" class="style-card" data-v="smart">
+        <h3 class="serif">智能布局</h3><p>智能生成版式</p>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="submitbar" id="bar" style="display:none">
+  <div class="inner">
+    <span class="note" id="bar-note">请选择风格版本</span>
+    <button class="btn" id="go" disabled>提交生成</button>
+  </div>
+</div>
+
+<footer class="wrap" style="padding-top:0;padding-bottom:40px">
+  <footer>由 Kimi 驱动 · 每个链接仅可生成一次</footer>
+</footer>
+
+<script>
+const h = new URLSearchParams(location.search).get('h') || '';
+const qs = s => document.querySelector(s);
+let style = '', files = [], submitting = false;
+
+(async () => {
+  if (!h) return showInvalid('链接缺少参数');
+  const r = await fetch(`/api/hashes/${h}/check`).then(x => x.json());
+  if (!r.valid) return showInvalid(r.reason === 'used'
+    ? '这个链接已经生成过 PPT 了。' : '这个链接不存在或已被收回。');
+  qs('#form').style.display = 'block';
+  qs('#bar').style.display = 'block';
+})();
+function showInvalid(msg){
+  qs('#invalid').style.display = 'block';
+  qs('#invalid-reason').textContent = msg;
+}
+qs('#pages').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  qs('#pages .on')?.classList.remove('on'); b.classList.add('on');
+});
+qs('#styles').addEventListener('click', e => {
+  const c = e.target.closest('.style-card'); if (!c) return;
+  document.querySelectorAll('.style-card').forEach(x => x.classList.remove('on'));
+  c.classList.add('on'); style = c.dataset.v;
+  qs('#go').disabled = false;
+  qs('#bar-note').textContent = '已选择：' + (style === 'classic' ? '经典模版' : '智能布局');
+});
+const drop = qs('#drop'), fileInput = qs('#file');
+drop.onclick = () => fileInput.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); };
+fileInput.onchange = () => { addFiles(fileInput.files); fileInput.value=''; };
+function addFiles(list){
+  for (const f of list) {
+    if (files.length >= 50) break;
+    if (f.size > 100*1024*1024) { alert(`${f.name} 超过 100MB`); continue; }
+    files.push(f);
+  }
+  renderFiles();
+}
+function renderFiles(){
+  qs('#filelist').innerHTML = files.map((f,i) =>
+    `<li><span>${f.name} <span style="color:var(--muted)">${(f.size/1048576).toFixed(1)}MB</span></span>
+     <button class="rm" data-i="${i}">移除</button></li>`).join('');
+  document.querySelectorAll('.rm').forEach(b => b.onclick = () => { files.splice(+b.dataset.i,1); renderFiles(); });
+}
+qs('#go').onclick = async () => {
+  const desc = qs('#desc').value.trim();
+  if (!desc) { alert('请先填写 PPT 描述'); return; }
+  if (submitting) return;
+  submitting = true;
+  const btn = qs('#go'); btn.disabled = true; btn.textContent = '提交中…';
+  const fd = new FormData();
+  fd.append('hash', h); fd.append('description', desc);
+  fd.append('pages', qs('#pages .on').dataset.v); fd.append('style', style);
+  files.forEach(f => fd.append('files', f));
+  const r = await fetch('/api/jobs', { method: 'POST', body: fd });
+  if (r.ok) {
+    const { job_id } = await r.json();
+    location.href = `/status/${job_id}`;
+  } else if (r.status === 409) {
+    showInvalid('来晚一步，这个链接刚刚被使用了。');
+    qs('#form').style.display = 'none'; qs('#bar').style.display = 'none';
+  } else {
+    const e = await r.json().catch(() => ({}));
+    alert('提交失败：' + (e.error || r.status));
+    btn.disabled = false; btn.textContent = '提交生成'; submitting = false;
+  }
+};
+</script>
+</body>
+</html>
